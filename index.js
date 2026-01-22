@@ -7,9 +7,11 @@ import pino from 'pino'
 const TYPEBOT_URL = process.env.TYPEBOT_URL
 
 async function connectToWhatsApp() {
-    const { version } = await fetchLatestBaileysVersion()
+    // 1. Garante a versão mais recente para evitar erro 405
+    const { version, isLatest } = await fetchLatestBaileysVersion()
     console.log(`Versão do WhatsApp Web: v${version.join('.')}`)
 
+    // 2. Pasta de sessão definitiva
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_final')
     
     const sock = makeWASocket({
@@ -24,11 +26,21 @@ async function connectToWhatsApp() {
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update
-        if(qr) { qrcode.generate(qr, { small: true }) }
+        
+        if(qr) {
+            console.log('\n👇 ESCANEIE O QR CODE NOVO ABAIXO 👇')
+            qrcode.generate(qr, { small: true }) 
+        }
+
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect?.error instanceof Boom) ?
                 lastDisconnect.error.output?.statusCode !== DisconnectReason.loggedOut : true
-            if (shouldReconnect) { setTimeout(connectToWhatsApp, 5000) }
+            
+            console.log('❌ Conexão caiu. Reconectando...', lastDisconnect?.error?.message)
+            
+            if (shouldReconnect) {
+                setTimeout(connectToWhatsApp, 5000)
+            }
         } else if (connection === 'open') {
             console.log('✅ CONEXÃO ESTABELECIDA!')
         }
@@ -41,7 +53,7 @@ async function connectToWhatsApp() {
         if (!msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') return
 
         const remoteJid = msg.key.remoteJid
-        // LIMPEZA DO ID: Remove o @s.whatsapp.net para evitar erro 404 na API
+        // Limpa o ID para evitar erro 404 na API do Typebot
         const cleanSessionId = remoteJid.split('@')[0]
         
         const textMessage = msg.message.conversation || 
@@ -56,15 +68,15 @@ async function connectToWhatsApp() {
             if (TYPEBOT_URL) {
                 let response;
                 try {
-                    // Tenta continuar usando o ID limpo
+                    // Tenta continuar a conversa
                     response = await axios.post(`${TYPEBOT_URL}/continueChat`, {
                         message: textMessage,
                         sessionId: cleanSessionId
                     });
                     console.log(`✅ ContinueChat OK`)
                 } catch (e) {
-                    // Se der 404, inicia nova sessão com o ID limpo
-                    console.log(`⚠️ Sessão nova para: ${cleanSessionId}`)
+                    // Se a sessão não existir (404), inicia nova
+                    console.log(`⚠️ Criando nova sessão para: ${cleanSessionId}`)
                     response = await axios.post(`${TYPEBOT_URL}/startChat`, {
                         message: textMessage,
                         sessionId: cleanSessionId,
@@ -78,16 +90,17 @@ async function connectToWhatsApp() {
 
                 const data = response.data;
 
-                // 1. Processa botões
+                // 1. Processa botões (Input Choice)
                 if (data.input && data.input.type === 'choice input') {
-                    let optionsText = '\n📋 *Digite o número da opção:*\n'
+                    let optionsText = ''
+                    optionsText += '\n📋 *Digite o número da opção:*\n'
                     data.input.items.forEach((item, index) => {
                         optionsText += `\n*${index + 1}.* ${item.content}`
                     })
                     await sock.sendMessage(remoteJid, { text: optionsText })
                 }
 
-                // 2. Processa as Mensagens
+                // 2. Processa as Mensagens normais
                 if (data.messages && data.messages.length > 0) {
                     for (const message of data.messages) {
                         await sock.sendPresenceUpdate('composing', remoteJid)
@@ -107,9 +120,9 @@ async function connectToWhatsApp() {
                 }
             }
         } catch (error) {
-            console.error('❌ ERRO:', error.response?.data || error.message)
+            console.error('❌ ERRO NO PROCESSO:', error.response?.data || error.message)
         }
     })
-})
+}
 
 connectToWhatsApp()
