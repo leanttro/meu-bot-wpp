@@ -6,7 +6,7 @@ import pino from 'pino'
 
 const TYPEBOT_URL = process.env.TYPEBOT_URL
 
-// 🔥 MAP DE SESSÕES (CORREÇÃO DO LOOP)
+// 🔥 MAP DE SESSÕES
 const sessions = new Map()
 
 async function connectToWhatsApp() {
@@ -30,21 +30,23 @@ async function connectToWhatsApp() {
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update
         
-        if(qr) {
+        if (qr) {
             console.log('\n👇 ESCANEIE O QR CODE NOVO ABAIXO 👇')
             qrcode.generate(qr, { small: true }) 
         }
 
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error instanceof Boom) ?
-                lastDisconnect.error.output?.statusCode !== DisconnectReason.loggedOut : true
+            const shouldReconnect = (lastDisconnect?.error instanceof Boom)
+                ? lastDisconnect.error.output?.statusCode !== DisconnectReason.loggedOut
+                : true
             
             console.log('❌ Conexão caiu. Reconectando...', lastDisconnect?.error?.message)
             
             if (shouldReconnect) {
                 setTimeout(connectToWhatsApp, 5000)
             }
-        } else if (connection === 'open') {
+        } 
+        else if (connection === 'open') {
             console.log('✅ CONEXÃO ESTABELECIDA!')
         }
     })
@@ -56,9 +58,10 @@ async function connectToWhatsApp() {
         if (!msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') return
 
         const remoteJid = msg.key.remoteJid
-        const textMessage = msg.message.conversation || 
-                            msg.message.extendedTextMessage?.text ||
-                            msg.message.imageMessage?.caption
+        const textMessage =
+            msg.message.conversation ||
+            msg.message.extendedTextMessage?.text ||
+            msg.message.imageMessage?.caption
 
         if (!textMessage) return
 
@@ -76,7 +79,10 @@ async function connectToWhatsApp() {
                         console.log(`🔄 Tentando continuar conversa: ${TYPEBOT_URL}/continueChat | sessionId: ${sessionId}`)
                         response = await axios.post(`${TYPEBOT_URL}/continueChat`, {
                             sessionId: sessionId,
-                            message: textMessage
+                            message: {
+                                type: "text",
+                                text: textMessage
+                            }
                         })
                         console.log(`✅ Sucesso no continueChat (Status: ${response.status})`)
                     } catch (e) {
@@ -106,7 +112,15 @@ async function connectToWhatsApp() {
                 }
 
                 const data = response.data
-                console.log(`🤖 Resposta do Typebot: ${JSON.stringify(data.messages?.map(m => m.content?.richText?.[0]?.children?.[0]?.text) || "Sem texto")}`)
+                console.log(
+                    `🤖 Resposta do Typebot: ${
+                        JSON.stringify(
+                            data.messages?.map(
+                                m => m.content?.richText?.[0]?.children?.[0]?.text
+                            ) || "Sem texto"
+                        )
+                    }`
+                )
 
                 // 1. Processa botões (Input Choice) convertendo para Lista Numerada
                 if (data.input && data.input.type === 'choice input') {
@@ -125,14 +139,22 @@ async function connectToWhatsApp() {
                         await new Promise(r => setTimeout(r, 800))
 
                         if (message.type === 'text') {
-                            const responseText = message.content.richText.map(n => n.children.map(c => c.text).join('')).join('\n')
+                            const responseText = message.content.richText
+                                .map(n => n.children.map(c => c.text).join(''))
+                                .join('\n')
                             await sock.sendMessage(remoteJid, { text: responseText })
                         } 
                         else if (message.type === 'image') {
-                            await sock.sendMessage(remoteJid, { image: { url: message.content.url } })
+                            await sock.sendMessage(remoteJid, {
+                                image: { url: message.content.url }
+                            })
                         }
                         else if (message.type === 'audio') {
-                            await sock.sendMessage(remoteJid, { audio: { url: message.content.url }, mimetype: 'audio/mp4', ptt: true })
+                            await sock.sendMessage(remoteJid, {
+                                audio: { url: message.content.url },
+                                mimetype: 'audio/mp4',
+                                ptt: true
+                            })
                         }
                     }
                 }
