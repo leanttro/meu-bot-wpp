@@ -61,17 +61,27 @@ async function connectToWhatsApp() {
 
         try {
             if (TYPEBOT_URL) {
-                // AQUI ESTÁ A MÁGICA PARA O SEU BANCO DE DADOS
-                const { data } = await axios.post(TYPEBOT_URL, {
-                    message: textMessage,
-                    sessionId: remoteJid,
-                    // Injeta essas variáveis no Typebot automaticamente
-                    prefilledVariables: {
-                        remoteJid: remoteJid,               // Variável para salvar no Postgres
-                        user_message: msg.pushName || "Sem Nome", // Nome do perfil do usuário
-                        pushName: msg.pushName || "Sem Nome"
-                    }
-                })
+                // Lógica para matar o loop: tenta continuar, se falhar (sessão nova) ele inicia
+                let response;
+                try {
+                    response = await axios.post(TYPEBOT_URL.replace('/startChat', '/continueChat'), {
+                        message: textMessage,
+                        sessionId: remoteJid
+                    });
+                } catch (e) {
+                    response = await axios.post(TYPEBOT_URL, {
+                        message: textMessage,
+                        sessionId: remoteJid,
+                        // Injeta essas variáveis no Typebot automaticamente
+                        prefilledVariables: {
+                            remoteJid: remoteJid,               // Variável para salvar no Postgres
+                            user_message: msg.pushName || "Sem Nome", // Alinhado com seu fluxo
+                            pushName: msg.pushName || "Sem Nome"
+                        }
+                    });
+                }
+
+                const data = response.data;
 
                 // 1. Processa botões (Input Choice) convertendo para Lista Numerada
                 if (data.input && data.input.type === 'choice input') {
