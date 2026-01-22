@@ -53,44 +53,43 @@ async function connectToWhatsApp() {
         if (!msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') return
 
         const remoteJid = msg.key.remoteJid
-        // Limpa o ID para evitar erro 404 na API do Typebot
-        const cleanSessionId = remoteJid.split('@')[0]
-        
         const textMessage = msg.message.conversation || 
                             msg.message.extendedTextMessage?.text ||
                             msg.message.imageMessage?.caption
 
         if (!textMessage) return
 
-        console.log(`\n📩 Mensagem de ${cleanSessionId}: "${textMessage}"`)
+        console.log(`\n📩 Mensagem recebida de ${remoteJid}: "${textMessage}"`)
 
         try {
             if (TYPEBOT_URL) {
                 let response;
                 try {
-                    // Tenta continuar a conversa
+                    console.log(`🔄 Tentando continuar conversa: ${TYPEBOT_URL}/continueChat`)
                     response = await axios.post(`${TYPEBOT_URL}/continueChat`, {
                         message: textMessage,
-                        sessionId: cleanSessionId
+                        sessionId: remoteJid
                     });
-                    console.log(`✅ ContinueChat OK`)
+                    console.log(`✅ Sucesso no continueChat (Status: ${response.status})`)
                 } catch (e) {
-                    // Se a sessão não existir (404), inicia nova
-                    console.log(`⚠️ Criando nova sessão para: ${cleanSessionId}`)
+                    console.log(`⚠️ Sessão não encontrada ou erro no continue. Tentando iniciar nova...`)
+                    console.log(`🚀 Chamando startChat: ${TYPEBOT_URL}/startChat`)
                     response = await axios.post(`${TYPEBOT_URL}/startChat`, {
                         message: textMessage,
-                        sessionId: cleanSessionId,
+                        sessionId: remoteJid,
                         prefilledVariables: {
                             remoteJid: remoteJid,
                             user_message: msg.pushName || "Sem Nome",
                             pushName: msg.pushName || "Sem Nome"
                         }
                     });
+                    console.log(`✅ Sucesso no startChat (Status: ${response.status})`)
                 }
 
                 const data = response.data;
+                console.log(`🤖 Resposta do Typebot: ${JSON.stringify(data.messages?.map(m => m.content?.richText?.[0]?.children?.[0]?.text) || "Sem texto")}`)
 
-                // 1. Processa botões (Input Choice)
+                // 1. Processa botões (Input Choice) convertendo para Lista Numerada
                 if (data.input && data.input.type === 'choice input') {
                     let optionsText = ''
                     optionsText += '\n📋 *Digite o número da opção:*\n'
@@ -120,7 +119,7 @@ async function connectToWhatsApp() {
                 }
             }
         } catch (error) {
-            console.error('❌ ERRO NO PROCESSO:', error.response?.data || error.message)
+            console.error('❌ ERRO NO AXIOS:', error.response?.data || error.message)
         }
     })
 }
