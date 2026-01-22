@@ -6,6 +6,9 @@ import pino from 'pino'
 
 const TYPEBOT_URL = process.env.TYPEBOT_URL
 
+// 🔥 MAP DE SESSÕES (CORREÇÃO DO LOOP)
+const sessions = new Map()
+
 async function connectToWhatsApp() {
     // 1. Garante a versão mais recente para evitar erro 405
     const { version, isLatest } = await fetchLatestBaileysVersion()
@@ -63,30 +66,46 @@ async function connectToWhatsApp() {
 
         try {
             if (TYPEBOT_URL) {
-                let response;
-                try {
-                    console.log(`🔄 Tentando continuar conversa: ${TYPEBOT_URL}/continueChat`)
-                    response = await axios.post(`${TYPEBOT_URL}/continueChat`, {
-                        message: textMessage,
-                        sessionId: remoteJid
-                    });
-                    console.log(`✅ Sucesso no continueChat (Status: ${response.status})`)
-                } catch (e) {
-                    console.log(`⚠️ Sessão não encontrada ou erro no continue. Tentando iniciar nova...`)
+
+                let response
+                let sessionId = sessions.get(remoteJid)
+
+                // 🔄 TENTA CONTINUAR CONVERSA
+                if (sessionId) {
+                    try {
+                        console.log(`🔄 Tentando continuar conversa: ${TYPEBOT_URL}/continueChat | sessionId: ${sessionId}`)
+                        response = await axios.post(`${TYPEBOT_URL}/continueChat`, {
+                            sessionId: sessionId,
+                            message: textMessage
+                        })
+                        console.log(`✅ Sucesso no continueChat (Status: ${response.status})`)
+                    } catch (e) {
+                        console.log(`⚠️ Sessão inválida no continueChat. Resetando sessão...`)
+                        sessions.delete(remoteJid)
+                        sessionId = null
+                    }
+                }
+
+                // 🚀 INICIA NOVA CONVERSA SE NÃO HOUVER SESSÃO
+                if (!sessionId) {
                     console.log(`🚀 Chamando startChat: ${TYPEBOT_URL}/startChat`)
                     response = await axios.post(`${TYPEBOT_URL}/startChat`, {
                         message: textMessage,
-                        sessionId: remoteJid,
                         prefilledVariables: {
                             remoteJid: remoteJid,
                             user_message: msg.pushName || "Sem Nome",
                             pushName: msg.pushName || "Sem Nome"
                         }
-                    });
+                    })
                     console.log(`✅ Sucesso no startChat (Status: ${response.status})`)
+
+                    if (response.data?.sessionId) {
+                        sessions.set(remoteJid, response.data.sessionId)
+                        console.log(`🆕 Sessão criada: ${response.data.sessionId}`)
+                    }
                 }
 
-                const data = response.data;
+                const data = response.data
                 console.log(`🤖 Resposta do Typebot: ${JSON.stringify(data.messages?.map(m => m.content?.richText?.[0]?.children?.[0]?.text) || "Sem texto")}`)
 
                 // 1. Processa botões (Input Choice) convertendo para Lista Numerada
