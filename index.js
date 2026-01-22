@@ -6,7 +6,7 @@ import pino from 'pino'
 
 const TYPEBOT_URL = process.env.TYPEBOT_URL
 
-// 🔥 MAP DE SESSÕES
+// 🔥 MAP DE SESSÕES POR USUÁRIO
 const sessions = new Map()
 
 async function connectToWhatsApp() {
@@ -96,7 +96,10 @@ async function connectToWhatsApp() {
                 if (!sessionId) {
                     console.log(`🚀 Chamando startChat: ${TYPEBOT_URL}/startChat`)
                     response = await axios.post(`${TYPEBOT_URL}/startChat`, {
-                        message: textMessage,
+                        message: {
+                            type: "text",
+                            text: textMessage
+                        },
                         prefilledVariables: {
                             remoteJid: remoteJid,
                             user_message: msg.pushName || "Sem Nome",
