@@ -1,4 +1,4 @@
-import { makeWASocket, useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys'
+import { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys'
 import { Boom } from '@hapi/boom'
 import axios from 'axios'
 import qrcode from 'qrcode-terminal'
@@ -7,17 +7,21 @@ import pino from 'pino'
 const TYPEBOT_URL = process.env.TYPEBOT_URL
 
 async function connectToWhatsApp() {
-    // MUDEI AQUI: _v3 para forçar uma limpeza total da sessão anterior
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_v3')
+    // 1. Busca a versão mais recente do WhatsApp Web automaticamente
+    const { version, isLatest } = await fetchLatestBaileysVersion()
+    console.log(`A versão do WhatsApp Web é: v${version.join('.')}, é a mais recente? ${isLatest}`)
+
+    // 2. Cria uma sessão nova (V4)
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_v4')
     
     const sock = makeWASocket({
+        version, // <--- O PULO DO GATO: Envia a versão correta
         auth: state,
-        // MUDEI AQUI: De 'silent' para 'error' para vermos se tem erro grave
-        logger: pino({ level: 'error' }), 
+        logger: pino({ level: 'silent' }), // Silencioso para não poluir
         printQRInTerminal: false,
-        // MUDEI AQUI: Usando uma assinatura de navegador mais padrão para evitar bloqueio
+        // Usar Linux/Chrome é o padrão mais aceito em servidores VPS
         browser: ["Ubuntu", "Chrome", "20.0.04"], 
-        connectTimeoutMs: 60000, // Aumentei o tempo para evitar queda em internet lenta
+        generateHighQualityLinkPreview: true,
     })
 
     sock.ev.on('connection.update', (update) => {
@@ -25,7 +29,7 @@ async function connectToWhatsApp() {
         
         if(qr) {
             console.log('\n')
-            console.log('👇 ESCANEIE O NOVO QR CODE ABAIXO 👇')
+            console.log('👇 ESCANEIE O QR CODE ABAIXO 👇')
             qrcode.generate(qr, { small: true }) 
             console.log('\n')
         }
@@ -34,24 +38,21 @@ async function connectToWhatsApp() {
             const shouldReconnect = (lastDisconnect?.error instanceof Boom) ?
                 lastDisconnect.error.output?.statusCode !== DisconnectReason.loggedOut : true
             
-            // MUDEI AQUI: Mostra o motivo exato do erro no log
-            console.log('❌ Conexão caiu. Motivo:', lastDisconnect?.error)
+            console.log('❌ Conexão caiu. Motivo:', lastDisconnect?.error?.output?.payload || lastDisconnect?.error)
             
+            // Se o erro for 405 ou 403, as vezes precisa esperar um pouco
             if (shouldReconnect) {
-                console.log('🔄 Tentando reconectar...')
-                connectToWhatsApp()
-            } else {
-                console.log('⛔ Você foi desconectado. Apague a pasta auth_info e reinicie.')
+                console.log('🔄 Reconectando em 5 segundos...')
+                setTimeout(connectToWhatsApp, 5000)
             }
         } else if (connection === 'open') {
-            console.log('✅ SUCESSO ABSOLUTO! Conectado e rodando.')
+            console.log('✅ CONEXÃO ESTABELECIDA COM SUCESSO!')
         }
     })
 
     sock.ev.on('creds.update', saveCreds)
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
-        // ... (o resto do código continua igual, só a conexão mudou)
         const msg = messages[0]
         if (!msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') return
 
@@ -85,7 +86,7 @@ async function connectToWhatsApp() {
                 }
             }
         } catch (error) {
-           // console.error('Erro Typebot')
+            // console.error('Erro Typebot')
         }
     })
 }
