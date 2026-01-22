@@ -61,21 +61,21 @@ async function connectToWhatsApp() {
 
         try {
             if (TYPEBOT_URL) {
-                // Lógica para matar o loop: tenta continuar, se falhar (sessão nova) ele inicia
+                // Tenta continuar a conversa primeiro
                 let response;
                 try {
-                    response = await axios.post(TYPEBOT_URL.replace('/startChat', '/continueChat'), {
+                    response = await axios.post(`${TYPEBOT_URL}/continueChat`, {
                         message: textMessage,
                         sessionId: remoteJid
                     });
                 } catch (e) {
-                    response = await axios.post(TYPEBOT_URL, {
+                    // Se falhar (404), é porque a sessão não existe, então inicia uma nova
+                    response = await axios.post(`${TYPEBOT_URL}/startChat`, {
                         message: textMessage,
                         sessionId: remoteJid,
-                        // Injeta essas variáveis no Typebot automaticamente
                         prefilledVariables: {
-                            remoteJid: remoteJid,               // Variável para salvar no Postgres
-                            user_message: msg.pushName || "Sem Nome", // Alinhado com seu fluxo
+                            remoteJid: remoteJid,
+                            user_message: msg.pushName || "Sem Nome", // Alinhado com seu Typebot
                             pushName: msg.pushName || "Sem Nome"
                         }
                     });
