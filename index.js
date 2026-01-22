@@ -61,7 +61,7 @@ async function connectToWhatsApp() {
 
         try {
             if (TYPEBOT_URL) {
-                // Tenta continuar a conversa primeiro
+                // Tenta continuar a conversa primeiro para evitar o loop
                 let response;
                 try {
                     response = await axios.post(`${TYPEBOT_URL}/continueChat`, {
@@ -69,7 +69,7 @@ async function connectToWhatsApp() {
                         sessionId: remoteJid
                     });
                 } catch (e) {
-                    // Se falhar (404), é porque a sessão não existe, então inicia uma nova
+                    // Se não houver sessão ativa, inicia uma nova
                     response = await axios.post(`${TYPEBOT_URL}/startChat`, {
                         message: textMessage,
                         sessionId: remoteJid,
