@@ -76,9 +76,12 @@ async function connectToWhatsApp() {
                 // 🔄 TENTA CONTINUAR CONVERSA
                 if (sessionId) {
                     try {
-                        console.log(`🔄 Tentando continuar conversa: ${TYPEBOT_URL}/continueChat | sessionId: ${sessionId}`)
-                        response = await axios.post(`${TYPEBOT_URL}/continueChat`, {
-                            sessionId: sessionId,
+                        // AJUSTE: O continueChat usa a URL base + /sessions/{id}/continueChat
+                        const baseUrl = TYPEBOT_URL.split('/typebots/')[0]
+                        const continueUrl = `${baseUrl}/sessions/${sessionId}/continueChat`
+
+                        console.log(`🔄 Tentando continuar conversa: ${continueUrl}`)
+                        response = await axios.post(continueUrl, {
                             message: {
                                 type: "text",
                                 text: textMessage
@@ -86,7 +89,7 @@ async function connectToWhatsApp() {
                         })
                         console.log(`✅ Sucesso no continueChat (Status: ${response.status})`)
                     } catch (e) {
-                        console.log(`⚠️ Sessão inválida no continueChat. Resetando sessão...`)
+                        console.log(`⚠️ Sessão inválida ou expirada no continueChat. Resetando sessão...`)
                         sessions.delete(remoteJid)
                         sessionId = null
                     }
@@ -115,16 +118,7 @@ async function connectToWhatsApp() {
                 }
 
                 const data = response.data
-                console.log(
-                    `🤖 Resposta do Typebot: ${
-                        JSON.stringify(
-                            data.messages?.map(
-                                m => m.content?.richText?.[0]?.children?.[0]?.text
-                            ) || "Sem texto"
-                        )
-                    }`
-                )
-
+                
                 // 1. Processa botões (Input Choice) convertendo para Lista Numerada
                 if (data.input && data.input.type === 'choice input') {
                     let optionsText = ''
