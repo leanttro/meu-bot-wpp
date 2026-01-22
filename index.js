@@ -28,7 +28,7 @@ async function connectToWhatsApp() {
         const { connection, lastDisconnect, qr } = update
         
         if(qr) {
-            console.log('\n👇 ESCANEIE O QR CODE NOVO ABAIXO 👇')
+            console.log('\n👇 ESCATEIE O QR CODE NOVO ABAIXO 👇')
             qrcode.generate(qr, { small: true }) 
         }
 
@@ -61,21 +61,23 @@ async function connectToWhatsApp() {
 
         try {
             if (TYPEBOT_URL) {
-                // Tenta continuar a conversa primeiro para evitar o loop
+                // LÓGICA PARA MATAR O LOOP: Tenta continuar, se não existir sessão, inicia.
                 let response;
                 try {
+                    // Tenta continuar a conversa existente
                     response = await axios.post(`${TYPEBOT_URL}/continueChat`, {
                         message: textMessage,
                         sessionId: remoteJid
                     });
                 } catch (e) {
-                    // Se não houver sessão ativa, inicia uma nova
+                    // Se falhar (sessão nova), chama o startChat
                     response = await axios.post(`${TYPEBOT_URL}/startChat`, {
                         message: textMessage,
                         sessionId: remoteJid,
+                        // Injeta essas variáveis no Typebot automaticamente
                         prefilledVariables: {
-                            remoteJid: remoteJid,
-                            user_message: msg.pushName || "Sem Nome", // Alinhado com seu Typebot
+                            remoteJid: remoteJid,               // Variável para salvar no Postgres
+                            user_message: msg.pushName || "Sem Nome", // Nome do perfil do usuário
                             pushName: msg.pushName || "Sem Nome"
                         }
                     });
