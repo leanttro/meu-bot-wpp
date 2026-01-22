@@ -7,11 +7,9 @@ import pino from 'pino'
 const TYPEBOT_URL = process.env.TYPEBOT_URL
 
 async function connectToWhatsApp() {
-    // 1. Garante a versão mais recente para evitar erro 405
-    const { version, isLatest } = await fetchLatestBaileysVersion()
+    const { version } = await fetchLatestBaileysVersion()
     console.log(`Versão do WhatsApp Web: v${version.join('.')}`)
 
-    // 2. Pasta de sessão definitiva
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_final')
     
     const sock = makeWASocket({
@@ -26,21 +24,11 @@ async function connectToWhatsApp() {
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update
-        
-        if(qr) {
-            console.log('\n👇 ESCANEIE O QR CODE NOVO ABAIXO 👇')
-            qrcode.generate(qr, { small: true }) 
-        }
-
+        if(qr) { qrcode.generate(qr, { small: true }) }
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect?.error instanceof Boom) ?
                 lastDisconnect.error.output?.statusCode !== DisconnectReason.loggedOut : true
-            
-            console.log('❌ Conexão caiu. Reconectando...', lastDisconnect?.error?.message)
-            
-            if (shouldReconnect) {
-                setTimeout(connectToWhatsApp, 5000)
-            }
+            if (shouldReconnect) { setTimeout(connectToWhatsApp, 5000) }
         } else if (connection === 'open') {
             console.log('✅ CONEXÃO ESTABELECIDA!')
         }
@@ -53,53 +41,53 @@ async function connectToWhatsApp() {
         if (!msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') return
 
         const remoteJid = msg.key.remoteJid
+        // LIMPEZA DO ID: Remove o @s.whatsapp.net para evitar erro 404 na API
+        const cleanSessionId = remoteJid.split('@')[0]
+        
         const textMessage = msg.message.conversation || 
                             msg.message.extendedTextMessage?.text ||
                             msg.message.imageMessage?.caption
 
         if (!textMessage) return
 
-        console.log(`\n📩 Mensagem recebida de ${remoteJid}: "${textMessage}"`)
+        console.log(`\n📩 Mensagem de ${cleanSessionId}: "${textMessage}"`)
 
         try {
             if (TYPEBOT_URL) {
                 let response;
                 try {
-                    console.log(`🔄 Tentando continuar conversa: ${TYPEBOT_URL}/continueChat`)
+                    // Tenta continuar usando o ID limpo
                     response = await axios.post(`${TYPEBOT_URL}/continueChat`, {
                         message: textMessage,
-                        sessionId: remoteJid
+                        sessionId: cleanSessionId
                     });
-                    console.log(`✅ Sucesso no continueChat (Status: ${response.status})`)
+                    console.log(`✅ ContinueChat OK`)
                 } catch (e) {
-                    console.log(`⚠️ Sessão não encontrada ou erro no continue. Tentando iniciar nova...`)
-                    console.log(`🚀 Chamando startChat: ${TYPEBOT_URL}/startChat`)
+                    // Se der 404, inicia nova sessão com o ID limpo
+                    console.log(`⚠️ Sessão nova para: ${cleanSessionId}`)
                     response = await axios.post(`${TYPEBOT_URL}/startChat`, {
                         message: textMessage,
-                        sessionId: remoteJid,
+                        sessionId: cleanSessionId,
                         prefilledVariables: {
                             remoteJid: remoteJid,
                             user_message: msg.pushName || "Sem Nome",
                             pushName: msg.pushName || "Sem Nome"
                         }
                     });
-                    console.log(`✅ Sucesso no startChat (Status: ${response.status})`)
                 }
 
                 const data = response.data;
-                console.log(`🤖 Resposta do Typebot: ${JSON.stringify(data.messages?.map(m => m.content?.richText?.[0]?.children?.[0]?.text) || "Sem texto")}`)
 
-                // 1. Processa botões (Input Choice) convertendo para Lista Numerada
+                // 1. Processa botões
                 if (data.input && data.input.type === 'choice input') {
-                    let optionsText = ''
-                    optionsText += '\n📋 *Digite o número da opção:*\n'
+                    let optionsText = '\n📋 *Digite o número da opção:*\n'
                     data.input.items.forEach((item, index) => {
                         optionsText += `\n*${index + 1}.* ${item.content}`
                     })
                     await sock.sendMessage(remoteJid, { text: optionsText })
                 }
 
-                // 2. Processa as Mensagens normais
+                // 2. Processa as Mensagens
                 if (data.messages && data.messages.length > 0) {
                     for (const message of data.messages) {
                         await sock.sendPresenceUpdate('composing', remoteJid)
@@ -119,9 +107,9 @@ async function connectToWhatsApp() {
                 }
             }
         } catch (error) {
-            console.error('❌ ERRO NO AXIOS:', error.response?.data || error.message)
+            console.error('❌ ERRO:', error.response?.data || error.message)
         }
     })
-}
+})
 
 connectToWhatsApp()
