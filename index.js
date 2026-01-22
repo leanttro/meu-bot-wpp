@@ -67,8 +67,8 @@ async function connectToWhatsApp() {
                     sessionId: remoteJid,
                     // Injeta essas variáveis no Typebot automaticamente
                     prefilledVariables: {
-                        remoteJid: remoteJid,               // Variável para salvar no Postgres
-                        user_name: msg.pushName || "Sem Nome", // Nome do perfil do usuário
+                        remoteJid: remoteJid,               
+                        user_message: msg.pushName || "Sem Nome", // Ajustado para bater com seu Typebot
                         pushName: msg.pushName || "Sem Nome"
                     }
                 })
@@ -76,14 +76,6 @@ async function connectToWhatsApp() {
                 // 1. Processa botões (Input Choice) convertendo para Lista Numerada
                 if (data.input && data.input.type === 'choice input') {
                     let optionsText = ''
-                    // Se a IA mandou texto antes das opções, exibe ele
-                    if (data.messages && data.messages.length > 0) {
-                         const lastMsg = data.messages[data.messages.length - 1]
-                         if (lastMsg.type === 'text') {
-                             // Opcional: remover a última mensagem da fila de envio normal para não duplicar, 
-                             // mas geralmente deixamos enviar e mandamos a lista em seguida.
-                         }
-                    }
                     
                     optionsText += '\n📋 *Digite o número da opção:*\n'
                     data.input.items.forEach((item, index) => {
