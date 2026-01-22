@@ -28,7 +28,7 @@ async function connectToWhatsApp() {
         const { connection, lastDisconnect, qr } = update
         
         if(qr) {
-            console.log('\n👇 ESCATEIE O QR CODE NOVO ABAIXO 👇')
+            console.log('\n👇 ESCANEIE O QR CODE NOVO ABAIXO 👇')
             qrcode.generate(qr, { small: true }) 
         }
 
@@ -42,7 +42,7 @@ async function connectToWhatsApp() {
                 setTimeout(connectToWhatsApp, 5000)
             }
         } else if (connection === 'open') {
-            console.log('✅ CONEXÃO ESTABELECIDA! Pronto para salvar no Banco.')
+            console.log('✅ CONEXÃO ESTABELECIDA!')
         }
     })
 
@@ -59,58 +59,51 @@ async function connectToWhatsApp() {
 
         if (!textMessage) return
 
+        console.log(`\n📩 Mensagem recebida de ${remoteJid}: "${textMessage}"`)
+
         try {
             if (TYPEBOT_URL) {
-                // LÓGICA PARA MATAR O LOOP: Tenta continuar, se não existir sessão, inicia.
                 let response;
                 try {
-                    // Tenta continuar a conversa existente
+                    console.log(`🔄 Tentando continuar conversa: ${TYPEBOT_URL}/continueChat`)
                     response = await axios.post(`${TYPEBOT_URL}/continueChat`, {
                         message: textMessage,
                         sessionId: remoteJid
                     });
+                    console.log(`✅ Sucesso no continueChat (Status: ${response.status})`)
                 } catch (e) {
-                    // Se falhar (sessão nova), chama o startChat
+                    console.log(`⚠️ Sessão não encontrada ou erro no continue. Tentando iniciar nova...`)
+                    console.log(`🚀 Chamando startChat: ${TYPEBOT_URL}/startChat`)
                     response = await axios.post(`${TYPEBOT_URL}/startChat`, {
                         message: textMessage,
                         sessionId: remoteJid,
-                        // Injeta essas variáveis no Typebot automaticamente
                         prefilledVariables: {
-                            remoteJid: remoteJid,               // Variável para salvar no Postgres
-                            user_message: msg.pushName || "Sem Nome", // Nome do perfil do usuário
+                            remoteJid: remoteJid,
+                            user_message: msg.pushName || "Sem Nome",
                             pushName: msg.pushName || "Sem Nome"
                         }
                     });
+                    console.log(`✅ Sucesso no startChat (Status: ${response.status})`)
                 }
 
                 const data = response.data;
+                console.log(`🤖 Resposta do Typebot: ${JSON.stringify(data.messages?.map(m => m.content?.richText?.[0]?.children?.[0]?.text) || "Sem texto")}`)
 
                 // 1. Processa botões (Input Choice) convertendo para Lista Numerada
                 if (data.input && data.input.type === 'choice input') {
                     let optionsText = ''
-                    // Se a IA mandou texto antes das opções, exibe ele
-                    if (data.messages && data.messages.length > 0) {
-                         const lastMsg = data.messages[data.messages.length - 1]
-                         if (lastMsg.type === 'text') {
-                             // Opcional: remover a última mensagem da fila de envio normal para não duplicar, 
-                             // mas geralmente deixamos enviar e mandamos a lista em seguida.
-                         }
-                    }
-                    
                     optionsText += '\n📋 *Digite o número da opção:*\n'
                     data.input.items.forEach((item, index) => {
                         optionsText += `\n*${index + 1}.* ${item.content}`
                     })
-                    
-                    // Envia a lista
                     await sock.sendMessage(remoteJid, { text: optionsText })
                 }
 
-                // 2. Processa as Mensagens normais (Texto, Imagem, Áudio)
+                // 2. Processa as Mensagens normais
                 if (data.messages && data.messages.length > 0) {
                     for (const message of data.messages) {
                         await sock.sendPresenceUpdate('composing', remoteJid)
-                        await new Promise(r => setTimeout(r, 800)) // Delay leve
+                        await new Promise(r => setTimeout(r, 800))
 
                         if (message.type === 'text') {
                             const responseText = message.content.richText.map(n => n.children.map(c => c.text).join('')).join('\n')
@@ -126,7 +119,7 @@ async function connectToWhatsApp() {
                 }
             }
         } catch (error) {
-            console.error('Erro no processamento:', error.message)
+            console.error('❌ ERRO NO AXIOS:', error.response?.data || error.message)
         }
     })
 }
