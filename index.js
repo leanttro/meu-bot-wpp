@@ -4,24 +4,20 @@ import axios from 'axios'
 import qrcode from 'qrcode-terminal'
 import pino from 'pino'
 
-// Pega a URL definida no Dokploy
 const TYPEBOT_URL = process.env.TYPEBOT_URL
 
-if (!TYPEBOT_URL) {
-    console.log("⚠️ AVISO: TYPEBOT_URL não definida. O bot não responderá, mas conectará.")
-}
-
 async function connectToWhatsApp() {
-    // Mudei o nome da pasta para forçar uma nova sessão limpa
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_v2')
+    // MUDEI AQUI: _v3 para forçar uma limpeza total da sessão anterior
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_v3')
     
     const sock = makeWASocket({
         auth: state,
-        // Isso aqui cala a boca dos logs JSON chatos
-        logger: pino({ level: 'silent' }), 
-        printQRInTerminal: false, // Nós vamos imprimir manualmente
-        browser: ["Dokploy", "Chrome", "10.0"], // Identidade do navegador
-        syncFullHistory: false // Conecta mais rápido
+        // MUDEI AQUI: De 'silent' para 'error' para vermos se tem erro grave
+        logger: pino({ level: 'error' }), 
+        printQRInTerminal: false,
+        // MUDEI AQUI: Usando uma assinatura de navegador mais padrão para evitar bloqueio
+        browser: ["Ubuntu", "Chrome", "20.0.04"], 
+        connectTimeoutMs: 60000, // Aumentei o tempo para evitar queda em internet lenta
     })
 
     sock.ev.on('connection.update', (update) => {
@@ -29,8 +25,7 @@ async function connectToWhatsApp() {
         
         if(qr) {
             console.log('\n')
-            console.log('👇 ESCANEIE ESTE QR CODE AGORA 👇')
-            // small: true é melhor para terminais de log
+            console.log('👇 ESCANEIE O NOVO QR CODE ABAIXO 👇')
             qrcode.generate(qr, { small: true }) 
             console.log('\n')
         }
@@ -39,20 +34,24 @@ async function connectToWhatsApp() {
             const shouldReconnect = (lastDisconnect?.error instanceof Boom) ?
                 lastDisconnect.error.output?.statusCode !== DisconnectReason.loggedOut : true
             
-            // Log simples para você saber o que houve
-            console.log(`Conexão caiu. Reconectando...`)
+            // MUDEI AQUI: Mostra o motivo exato do erro no log
+            console.log('❌ Conexão caiu. Motivo:', lastDisconnect?.error)
             
             if (shouldReconnect) {
+                console.log('🔄 Tentando reconectar...')
                 connectToWhatsApp()
+            } else {
+                console.log('⛔ Você foi desconectado. Apague a pasta auth_info e reinicie.')
             }
         } else if (connection === 'open') {
-            console.log('✅ SUCESSO! Conectado ao WhatsApp.')
+            console.log('✅ SUCESSO ABSOLUTO! Conectado e rodando.')
         }
     })
 
     sock.ev.on('creds.update', saveCreds)
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
+        // ... (o resto do código continua igual, só a conexão mudou)
         const msg = messages[0]
         if (!msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') return
 
@@ -86,8 +85,7 @@ async function connectToWhatsApp() {
                 }
             }
         } catch (error) {
-            // Ignora erros silenciosamente para não sujar o log, ou dê um console.log simples
-            // console.error('Erro Typebot')
+           // console.error('Erro Typebot')
         }
     })
 }
