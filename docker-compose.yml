@@ -5,11 +5,10 @@ services:
     build: .
     restart: always
     volumes:
-      # Isso garante que a sessão do WPP fique salva no disco do servidor
-      - typebot_wpp_session:/app/auth_info
+      # Salva a sessão no disco do servidor para não pedir QR code toda hora
+      - wpp_session_data:/app/auth_info_final
     environment:
-      # Passa a variável que você vai configurar no painel do Dokploy
       - TYPEBOT_URL=${TYPEBOT_URL}
 
 volumes:
-  typebot_wpp_session:
+  wpp_session_data:

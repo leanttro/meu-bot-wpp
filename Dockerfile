@@ -2,7 +2,7 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Instala git (necessário para algumas dependências internas do baileys)
+# Instala git (necessário para o Baileys)
 RUN apk add --no-cache git
 
 COPY package*.json ./
