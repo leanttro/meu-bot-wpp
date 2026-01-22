@@ -63,23 +63,18 @@ async function connectToWhatsApp() {
 
         try {
             if (TYPEBOT_URL) {
-                // Separação das URLs para evitar erro de rota no Typebot
-                const baseUrl = TYPEBOT_URL.split('/api/v1')[0] + '/api/v1'
-                const typebotId = TYPEBOT_URL.split('/typebots/')[1]
-                
                 let response;
                 try {
-                    // Para continuar, deve-se usar o endpoint de /sessions/
-                    console.log(`🔄 Tentando continuar conversa na sessão: ${remoteJid}`)
-                    response = await axios.post(`${baseUrl}/sessions/${remoteJid}/continueChat`, {
-                        message: textMessage
+                    console.log(`🔄 Tentando continuar conversa: ${TYPEBOT_URL}/continueChat`)
+                    response = await axios.post(`${TYPEBOT_URL}/continueChat`, {
+                        message: textMessage,
+                        sessionId: remoteJid
                     });
                     console.log(`✅ Sucesso no continueChat (Status: ${response.status})`)
                 } catch (e) {
-                    // Se a sessão não existir ou der erro, inicia uma nova vinculando o JID como sessionId
                     console.log(`⚠️ Sessão não encontrada ou erro no continue. Tentando iniciar nova...`)
-                    console.log(`🚀 Chamando startChat: ${baseUrl}/typebots/${typebotId}/startChat`)
-                    response = await axios.post(`${baseUrl}/typebots/${typebotId}/startChat`, {
+                    console.log(`🚀 Chamando startChat: ${TYPEBOT_URL}/startChat`)
+                    response = await axios.post(`${TYPEBOT_URL}/startChat`, {
                         message: textMessage,
                         sessionId: remoteJid,
                         prefilledVariables: {
@@ -92,7 +87,7 @@ async function connectToWhatsApp() {
                 }
 
                 const data = response.data;
-                console.log(`🤖 Resposta do Typebot processada`)
+                console.log(`🤖 Resposta do Typebot: ${JSON.stringify(data.messages?.map(m => m.content?.richText?.[0]?.children?.[0]?.text) || "Sem texto")}`)
 
                 // 1. Processa botões (Input Choice) convertendo para Lista Numerada
                 if (data.input && data.input.type === 'choice input') {
