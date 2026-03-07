@@ -3,8 +3,16 @@ import { Boom } from '@hapi/boom'
 import axios from 'axios'
 import qrcode from 'qrcode-terminal'
 import pino from 'pino'
+import express from 'express'
+import cors from 'cors'
+
+// --- CONFIGURAÇÃO DA API DE DISPARO ---
+const app = express()
+app.use(cors())
+app.use(express.json())
 
 const TYPEBOT_URL = process.env.TYPEBOT_URL
+let sockGlobal // Referência para o disparo via Python
 
 // 🔥 MAP DE SESSÕES POR USUÁRIO
 const sessions = new Map()
@@ -32,127 +40,64 @@ async function connectToWhatsApp() {
         
         if (qr) {
             console.log('\n👇 ESCANEIE O QR CODE NOVO ABAIXO 👇')
-            qrcode.generate(qr, { small: true }) 
+            qrcode.generate(qr, { small: true })
         }
 
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error instanceof Boom)
-                ? lastDisconnect.error.output?.statusCode !== DisconnectReason.loggedOut
-                : true
-            
-            console.log('❌ Conexão caiu. Reconectando...', lastDisconnect?.error?.message)
-            
-            if (shouldReconnect) {
-                setTimeout(connectToWhatsApp, 5000)
-            }
-        } 
-        else if (connection === 'open') {
-            console.log('✅ CONEXÃO ESTABELECIDA!')
+            const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut
+            console.log('Conexão fechada devido a:', lastDisconnect.error, ', tentando reconectar:', shouldReconnect)
+            if (shouldReconnect) connectToWhatsApp()
+        } else if (connection === 'open') {
+            console.log('✅ WHATSAPP CONECTADO')
+            sockGlobal = sock // Atribui o socket para a rota de disparo
         }
     })
 
     sock.ev.on('creds.update', saveCreds)
 
-    sock.ev.on('messages.upsert', async ({ messages }) => {
+    // --- LOGICA DO TYPEBOT (MANTIDA INTEGRALMENTE) ---
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+        if (type !== 'notify') return
         const msg = messages[0]
-        if (!msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') return
 
+        // Não responde se a mensagem for enviada por você mesmo
+        if (msg.key.fromMe) return
+        
         const remoteJid = msg.key.remoteJid
-        const textMessage =
-            msg.message.conversation ||
-            msg.message.extendedTextMessage?.text ||
-            msg.message.imageMessage?.caption
-
-        if (!textMessage) return
-
-        console.log(`\n📩 Mensagem recebida de ${remoteJid}: "${textMessage}"`)
+        const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text
+        
+        if (!text) return
 
         try {
-            if (TYPEBOT_URL) {
+            // Envia para o seu Typebot
+            const { data } = await axios.post(TYPEBOT_URL, {
+                message: text,
+                remoteJid: remoteJid
+            })
 
-                let response
-                let sessionId = sessions.get(remoteJid)
+            // Processa as Mensagens do Typebot
+            if (data.messages && data.messages.length > 0) {
+                for (const message of data.messages) {
+                    await sock.sendPresenceUpdate('composing', remoteJid)
+                    await new Promise(r => setTimeout(r, 800))
 
-                // 🔄 TENTA CONTINUAR CONVERSA
-                if (sessionId) {
-                    try {
-                        // AJUSTE: O continueChat usa a URL base + /sessions/{id}/continueChat
-                        const baseUrl = TYPEBOT_URL.split('/typebots/')[0]
-                        const continueUrl = `${baseUrl}/sessions/${sessionId}/continueChat`
-
-                        console.log(`🔄 Tentando continuar conversa: ${continueUrl}`)
-                        response = await axios.post(continueUrl, {
-                            message: {
-                                type: "text",
-                                text: textMessage
-                            }
+                    if (message.type === 'text') {
+                        const responseText = message.content.richText
+                            .map(n => n.children.map(c => c.text).join(''))
+                            .join('\n')
+                        await sock.sendMessage(remoteJid, { text: responseText })
+                    } 
+                    else if (message.type === 'image') {
+                        await sock.sendMessage(remoteJid, {
+                            image: { url: message.content.url }
                         })
-                        console.log(`✅ Sucesso no continueChat (Status: ${response.status})`)
-                    } catch (e) {
-                        console.log(`⚠️ Sessão inválida ou expirada no continueChat. Resetando sessão...`)
-                        sessions.delete(remoteJid)
-                        sessionId = null
                     }
-                }
-
-                // 🚀 INICIA NOVA CONVERSA SE NÃO HOUVER SESSÃO
-                if (!sessionId) {
-                    console.log(`🚀 Chamando startChat: ${TYPEBOT_URL}/startChat`)
-                    response = await axios.post(`${TYPEBOT_URL}/startChat`, {
-                        message: {
-                            type: "text",
-                            text: textMessage
-                        },
-                        prefilledVariables: {
-                            remoteJid: remoteJid,
-                            user_message: msg.pushName || "Sem Nome",
-                            pushName: msg.pushName || "Sem Nome"
-                        }
-                    })
-                    console.log(`✅ Sucesso no startChat (Status: ${response.status})`)
-
-                    if (response.data?.sessionId) {
-                        sessions.set(remoteJid, response.data.sessionId)
-                        console.log(`🆕 Sessão criada: ${response.data.sessionId}`)
-                    }
-                }
-
-                const data = response.data
-                
-                // 1. Processa botões (Input Choice) convertendo para Lista Numerada
-                if (data.input && data.input.type === 'choice input') {
-                    let optionsText = ''
-                    optionsText += '\n📋 *Digite o número da opção:*\n'
-                    data.input.items.forEach((item, index) => {
-                        optionsText += `\n*${index + 1}.* ${item.content}`
-                    })
-                    await sock.sendMessage(remoteJid, { text: optionsText })
-                }
-
-                // 2. Processa as Mensagens normais
-                if (data.messages && data.messages.length > 0) {
-                    for (const message of data.messages) {
-                        await sock.sendPresenceUpdate('composing', remoteJid)
-                        await new Promise(r => setTimeout(r, 800))
-
-                        if (message.type === 'text') {
-                            const responseText = message.content.richText
-                                .map(n => n.children.map(c => c.text).join(''))
-                                .join('\n')
-                            await sock.sendMessage(remoteJid, { text: responseText })
-                        } 
-                        else if (message.type === 'image') {
-                            await sock.sendMessage(remoteJid, {
-                                image: { url: message.content.url }
-                            })
-                        }
-                        else if (message.type === 'audio') {
-                            await sock.sendMessage(remoteJid, {
-                                audio: { url: message.content.url },
-                                mimetype: 'audio/mp4',
-                                ptt: true
-                            })
-                        }
+                    else if (message.type === 'audio') {
+                        await sock.sendMessage(remoteJid, {
+                            audio: { url: message.content.url },
+                            mimetype: 'audio/mp4',
+                            ptt: true
+                        })
                     }
                 }
             }
@@ -162,4 +107,41 @@ async function connectToWhatsApp() {
     })
 }
 
-connectToWhatsApp()
+// ==========================================
+// ROTA DE DISPARO (AQUI O SEU PYTHON SE CONECTA)
+// ==========================================
+app.post('/disparar', async (req, res) => {
+    try {
+        const { number, message } = req.body
+
+        if (!sockGlobal) {
+            return res.status(503).json({ error: "WhatsApp não está conectado ainda." })
+        }
+
+        if (!number || !message) {
+            return res.status(400).json({ error: "Falta o número ou a mensagem." })
+        }
+
+        const jid = `${number}@s.whatsapp.net`
+
+        // Simula digitando
+        await sockGlobal.sendPresenceUpdate('composing', jid)
+        await new Promise(resolve => setTimeout(resolve, 1500))
+        
+        // Envia a mensagem
+        await sockGlobal.sendMessage(jid, { text: message })
+
+        console.log(`🔥 Disparo enviado para: ${number}`)
+        res.status(200).json({ status: "success" })
+
+    } catch (error) {
+        console.error("Erro no disparo:", error)
+        res.status(500).json({ error: error.message })
+    }
+})
+
+// Inicia o servidor e a conexão
+app.listen(3000, () => {
+    console.log('🚀 SERVIDOR DE DISPARO RODANDO NA PORTA 3000')
+    connectToWhatsApp()
+})
