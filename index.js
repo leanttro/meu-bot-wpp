@@ -6,15 +6,17 @@ import pino from 'pino'
 import express from 'express'
 import cors from 'cors'
 
-// --- CONFIGURAÇÃO DA API DE DISPARO ---
+// =====================================================================
+// CONFIGURAÇÃO DA API DE DISPARO (PARA O BUSCADOR PYTHON)
+// =====================================================================
 const app = express()
 app.use(cors())
 app.use(express.json())
 
 const TYPEBOT_URL = process.env.TYPEBOT_URL
-let sockGlobal // Referência para o disparo via Python
+let sockGlobal // Variável para o disparo usar a conexão ativa do bot
 
-// 🔥 MAP DE SESSÕES POR USUÁRIO
+// 🔥 MAP DE SESSÕES POR USUÁRIO (MANTIDO INTEGRALMENTE)
 const sessions = new Map()
 
 async function connectToWhatsApp() {
@@ -22,7 +24,7 @@ async function connectToWhatsApp() {
     const { version, isLatest } = await fetchLatestBaileysVersion()
     console.log(`Versão do WhatsApp Web: v${version.join('.')}`)
 
-    // 2. Pasta de sessão definitiva
+    // 2. Pasta de sessão definitiva (Volume configurado no Dokploy)
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_final')
     
     const sock = makeWASocket({
@@ -35,6 +37,7 @@ async function connectToWhatsApp() {
         syncFullHistory: false
     })
 
+    // GERENCIAMENTO DE CONEXÃO
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update
         
@@ -45,17 +48,17 @@ async function connectToWhatsApp() {
 
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut
-            console.log('Conexão fechada devido a:', lastDisconnect.error, ', tentando reconectar:', shouldReconnect)
+            console.log('Conexão fechada. Tentando reconectar:', shouldReconnect)
             if (shouldReconnect) connectToWhatsApp()
         } else if (connection === 'open') {
-            console.log('✅ WHATSAPP CONECTADO')
-            sockGlobal = sock // Atribui o socket para a rota de disparo
+            console.log('✅ WHATSAPP CONECTADO - AGUARDANDO COMANDOS')
+            sockGlobal = sock // Libera a conexão para a rota /disparar
         }
     })
 
     sock.ev.on('creds.update', saveCreds)
 
-    // --- LOGICA DO TYPEBOT (MANTIDA INTEGRALMENTE) ---
+    // --- LÓGICA DE MENSAGENS E TYPEBOT (COMPLETA E SEM CORTES) ---
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return
         const msg = messages[0]
@@ -75,9 +78,10 @@ async function connectToWhatsApp() {
                 remoteJid: remoteJid
             })
 
-            // Processa as Mensagens do Typebot
+            // Processa as Mensagens (Texto, Imagem, Áudio PTT) vindas do Typebot
             if (data.messages && data.messages.length > 0) {
                 for (const message of data.messages) {
+                    // Efeito de "digitando..."
                     await sock.sendPresenceUpdate('composing', remoteJid)
                     await new Promise(r => setTimeout(r, 800))
 
@@ -102,46 +106,47 @@ async function connectToWhatsApp() {
                 }
             }
         } catch (error) {
-            console.error('❌ ERRO NO AXIOS:', error.response?.data || error.message)
+            console.error('❌ ERRO NA INTEGRAÇÃO COM TYPEBOT:', error.response?.data || error.message)
         }
     })
 }
 
-// ==========================================
+// =====================================================================
 // ROTA DE DISPARO (AQUI O SEU PYTHON SE CONECTA)
-// ==========================================
+// =====================================================================
 app.post('/disparar', async (req, res) => {
     try {
         const { number, message } = req.body
 
         if (!sockGlobal) {
-            return res.status(503).json({ error: "WhatsApp não está conectado ainda." })
+            return res.status(503).json({ error: "O WhatsApp ainda não está conectado no servidor." })
         }
 
         if (!number || !message) {
-            return res.status(400).json({ error: "Falta o número ou a mensagem." })
+            return res.status(400).json({ error: "Número (number) e mensagem (message) são obrigatórios." })
         }
 
+        // Formata o número para o padrão JID do WhatsApp
         const jid = `${number}@s.whatsapp.net`
 
-        // Simula digitando
+        // Simulação de presença humana (digitando) para evitar ban imediato
         await sockGlobal.sendPresenceUpdate('composing', jid)
-        await new Promise(resolve => setTimeout(resolve, 1500))
+        await new Promise(r => setTimeout(r, 1500))
         
-        // Envia a mensagem
+        // Envio real da mensagem de prospecção do Sniper
         await sockGlobal.sendMessage(jid, { text: message })
 
-        console.log(`🔥 Disparo enviado para: ${number}`)
-        res.status(200).json({ status: "success" })
+        console.log(`🚀 Mensagem enviada via API para: ${number}`)
+        res.status(200).json({ status: "success", message: "Disparo efetuado" })
 
     } catch (error) {
-        console.error("Erro no disparo:", error)
+        console.error("Falha no disparo via API:", error)
         res.status(500).json({ error: error.message })
     }
 })
 
-// Inicia o servidor e a conexão
+// INICIA O SERVIDOR API NA PORTA 3000 E CONECTA O WHATSAPP
 app.listen(3000, () => {
-    console.log('🚀 SERVIDOR DE DISPARO RODANDO NA PORTA 3000')
+    console.log('🚀 SERVIDOR LEANTTRO RODANDO NA PORTA 3000')
     connectToWhatsApp()
 })
