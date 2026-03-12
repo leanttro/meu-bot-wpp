@@ -11,7 +11,7 @@ import cors from 'cors'
 // =====================================================================
 const app = express()
 app.use(cors())
-app.use(express.json())
+app.use(express.json({ limit: '50mb' })) // Aumentado para suportar imagens em base64
 
 const TYPEBOT_URL = process.env.TYPEBOT_URL
 let sockGlobal // Variável para o disparo usar a conexão ativa do bot
@@ -116,7 +116,7 @@ async function connectToWhatsApp() {
 // =====================================================================
 app.post('/disparar', async (req, res) => {
     try {
-        const { number, message } = req.body
+        const { number, message, image } = req.body
 
         if (!sockGlobal) {
             return res.status(503).json({ error: "O WhatsApp ainda não está conectado no servidor." })
@@ -133,8 +133,13 @@ app.post('/disparar', async (req, res) => {
         await sockGlobal.sendPresenceUpdate('composing', jid)
         await new Promise(r => setTimeout(r, 1500))
         
-        // Envio real da mensagem de prospecção do Sniper
-        await sockGlobal.sendMessage(jid, { text: message })
+        // Envio real da mensagem de prospecção do Sniper (com ou sem imagem)
+        if (image) {
+            const buffer = Buffer.from(image, 'base64')
+            await sockGlobal.sendMessage(jid, { image: buffer, caption: message })
+        } else {
+            await sockGlobal.sendMessage(jid, { text: message })
+        }
 
         console.log(`🚀 Mensagem enviada via API para: ${number}`)
         res.status(200).json({ status: "success", message: "Disparo efetuado" })
