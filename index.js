@@ -150,8 +150,8 @@ app.post('/disparar', async (req, res) => {
     }
 })
 
-// INICIA O SERVIDOR API NA PORTA 3000 E CONECTA O WHATSAPP
-app.listen(3000, () => {
-    console.log('🚀 SERVIDOR LEANTTRO RODANDO NA PORTA 3000')
+// INICIA O SERVIDOR API NA PORTA 3001 (AJUSTADO PARA NÃO CONFLITAR COM DOKPLOY)
+app.listen(3001, () => {
+    console.log('🚀 SERVIDOR LEANTTRO RODANDO NA PORTA 3001')
     connectToWhatsApp()
 })
