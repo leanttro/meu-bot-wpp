@@ -116,7 +116,7 @@ async function connectToWhatsApp() {
 // =====================================================================
 app.post('/disparar', async (req, res) => {
     try {
-        const { number, message, image } = req.body
+        const { number, message, image, videoUrl } = req.body
 
         if (!sockGlobal) {
             return res.status(503).json({ error: "O WhatsApp ainda não está conectado no servidor." })
@@ -133,8 +133,10 @@ app.post('/disparar', async (req, res) => {
         await sockGlobal.sendPresenceUpdate('composing', jid)
         await new Promise(r => setTimeout(r, 1500))
         
-        // Envio real da mensagem de prospecção do Sniper (com ou sem imagem)
-        if (image) {
+        // Envio real da mensagem de prospecção do Sniper (com ou sem imagem/video)
+        if (videoUrl) {
+            await sockGlobal.sendMessage(jid, { video: { url: videoUrl }, caption: message })
+        } else if (image) {
             const buffer = Buffer.from(image, 'base64')
             await sockGlobal.sendMessage(jid, { image: buffer, caption: message })
         } else {
