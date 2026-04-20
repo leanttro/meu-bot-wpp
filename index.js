@@ -69,11 +69,10 @@ async function connectToWhatsApp() {
         const msg = messages[0]
         
         const remoteJid = msg.key.remoteJid
-        const pushName = msg.pushName || '' // Captura o nome do perfil público
+        const pushName = msg.pushName || '' 
         const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text
 
         if (text) {
-            // Envia para a interface com o pushName
             io.emit('nova_mensagem', { remoteJid, pushName, text, fromMe: msg.key.fromMe || false })
         }
 
@@ -133,6 +132,14 @@ io.on('connection', (socket) => {
             }
         }
     })
+})
+
+app.get('/status', (req, res) => {
+    if (sockGlobal && sockGlobal.user) {
+        res.json({ connected: true, number: sockGlobal.user.id.split(':')[0] })
+    } else {
+        res.json({ connected: false, number: "" })
+    }
 })
 
 app.post('/disparar', async (req, res) => {
