@@ -5,26 +5,28 @@ import qrcode from 'qrcode-terminal'
 import pino from 'pino'
 import express from 'express'
 import cors from 'cors'
+import { createServer } from 'http'
+import { Server } from 'socket.io'
 
 // =====================================================================
-// CONFIGURAÇÃO DA API DE DISPARO (PARA O BUSCADOR PYTHON)
+// CONFIGURAÇÃO DA API DE DISPARO E WEBSOCKET
 // =====================================================================
 const app = express()
 app.use(cors())
-app.use(express.json({ limit: '50mb' })) // Aumentado para suportar imagens em base64
+app.use(express.json({ limit: '50mb' }))
+
+const httpServer = createServer(app)
+const io = new Server(httpServer, { cors: { origin: '*' } })
 
 const TYPEBOT_URL = process.env.TYPEBOT_URL
-let sockGlobal // Variável para o disparo usar a conexão ativa do bot
+let sockGlobal
 
-// 🔥 MAP DE SESSÕES POR USUÁRIO (MANTIDO INTEGRALMENTE)
 const sessions = new Map()
 
 async function connectToWhatsApp() {
-    // 1. Garante a versão mais recente para evitar erro 405
     const { version, isLatest } = await fetchLatestBaileysVersion()
     console.log(`Versão do WhatsApp Web: v${version.join('.')}`)
 
-    // 2. Pasta de sessão definitiva (Volume configurado no Dokploy)
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_final')
     
     const sock = makeWASocket({
@@ -37,7 +39,6 @@ async function connectToWhatsApp() {
         syncFullHistory: false
     })
 
-    // GERENCIAMENTO DE CONEXÃO
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update
         
@@ -52,36 +53,34 @@ async function connectToWhatsApp() {
             if (shouldReconnect) connectToWhatsApp()
         } else if (connection === 'open') {
             console.log('✅ WHATSAPP CONECTADO - AGUARDANDO COMANDOS')
-            sockGlobal = sock // Libera a conexão para a rota /disparar
+            sockGlobal = sock
         }
     })
 
     sock.ev.on('creds.update', saveCreds)
 
-    // --- LÓGICA DE MENSAGENS E TYPEBOT (COMPLETA E SEM CORTES) ---
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return
         const msg = messages[0]
-
-        // Não responde se a mensagem for enviada por você mesmo
-        if (msg.key.fromMe) return
         
         const remoteJid = msg.key.remoteJid
         const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text
-        
+
+        if (text) {
+            io.emit('nova_mensagem', { remoteJid, text, fromMe: msg.key.fromMe || false })
+        }
+
+        if (msg.key.fromMe) return
         if (!text) return
 
         try {
-            // Envia para o seu Typebot
             const { data } = await axios.post(TYPEBOT_URL, {
                 message: text,
                 remoteJid: remoteJid
             })
 
-            // Processa as Mensagens (Texto, Imagem, Áudio PTT) vindas do Typebot
             if (data.messages && data.messages.length > 0) {
                 for (const message of data.messages) {
-                    // Efeito de "digitando..."
                     await sock.sendPresenceUpdate('composing', remoteJid)
                     await new Promise(r => setTimeout(r, 800))
 
@@ -90,11 +89,13 @@ async function connectToWhatsApp() {
                             .map(n => n.children.map(c => c.text).join(''))
                             .join('\n')
                         await sock.sendMessage(remoteJid, { text: responseText })
+                        io.emit('nova_mensagem', { remoteJid, text: responseText, fromMe: true })
                     } 
                     else if (message.type === 'image') {
                         await sock.sendMessage(remoteJid, {
                             image: { url: message.content.url }
                         })
+                        io.emit('nova_mensagem', { remoteJid, text: 'Imagem enviada', fromMe: true })
                     }
                     else if (message.type === 'audio') {
                         await sock.sendMessage(remoteJid, {
@@ -102,6 +103,7 @@ async function connectToWhatsApp() {
                             mimetype: 'audio/mp4',
                             ptt: true
                         })
+                        io.emit('nova_mensagem', { remoteJid, text: 'Áudio enviado', fromMe: true })
                     }
                 }
             }
@@ -111,9 +113,21 @@ async function connectToWhatsApp() {
     })
 }
 
-// =====================================================================
-// ROTA DE DISPARO (AQUI O SEU PYTHON SE CONECTA)
-// =====================================================================
+io.on('connection', (socket) => {
+    console.log('Interface web conectada no WebSocket')
+    
+    socket.on('enviar_resposta', async (data) => {
+        if(sockGlobal && data.jid && data.text) {
+            try {
+                await sockGlobal.sendMessage(data.jid, { text: data.text })
+                io.emit('nova_mensagem', { remoteJid: data.jid, text: data.text, fromMe: true })
+            } catch (err) {
+                console.error('Erro ao responder via painel:', err)
+            }
+        }
+    })
+})
+
 app.post('/disparar', async (req, res) => {
     try {
         const { number, message, image, videoUrl } = req.body
@@ -123,17 +137,14 @@ app.post('/disparar', async (req, res) => {
         }
 
         if (!number || !message) {
-            return res.status(400).json({ error: "Número (number) e mensagem (message) são obrigatórios." })
+            return res.status(400).json({ error: "Número e mensagem são obrigatórios." })
         }
 
-        // Formata o número para o padrão JID do WhatsApp
         const jid = `${number}@s.whatsapp.net`
 
-        // Simulação de presença humana (digitando) para evitar ban imediato
         await sockGlobal.sendPresenceUpdate('composing', jid)
         await new Promise(r => setTimeout(r, 1500))
         
-        // Envio real da mensagem de prospecção do Sniper (com ou sem imagem/video)
         if (videoUrl) {
             await sockGlobal.sendMessage(jid, { video: { url: videoUrl }, caption: message })
         } else if (image) {
@@ -142,6 +153,8 @@ app.post('/disparar', async (req, res) => {
         } else {
             await sockGlobal.sendMessage(jid, { text: message })
         }
+
+        io.emit('nova_mensagem', { remoteJid: jid, text: message, fromMe: true })
 
         console.log(`🚀 Mensagem enviada via API para: ${number}`)
         res.status(200).json({ status: "success", message: "Disparo efetuado" })
@@ -152,8 +165,7 @@ app.post('/disparar', async (req, res) => {
     }
 })
 
-// INICIA O SERVIDOR API NA PORTA 3000 E CONECTA O WHATSAPP
-app.listen(3000, () => {
-    console.log('🚀 SERVIDOR LEANTTRO RODANDO NA PORTA 3000')
+httpServer.listen(3000, () => {
+    console.log('🚀 SERVIDOR LEANTTRO RODANDO NA PORTA 3000 COM WEBSOCKET')
     connectToWhatsApp()
 })
