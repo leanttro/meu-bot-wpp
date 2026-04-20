@@ -69,10 +69,12 @@ async function connectToWhatsApp() {
         const msg = messages[0]
         
         const remoteJid = msg.key.remoteJid
+        const pushName = msg.pushName || '' // Captura o nome do perfil público
         const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text
 
         if (text) {
-            io.emit('nova_mensagem', { remoteJid, text, fromMe: msg.key.fromMe || false })
+            // Envia para a interface com o pushName
+            io.emit('nova_mensagem', { remoteJid, pushName, text, fromMe: msg.key.fromMe || false })
         }
 
         if (msg.key.fromMe) return
