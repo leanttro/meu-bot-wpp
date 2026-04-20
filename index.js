@@ -16,7 +16,12 @@ app.use(cors())
 app.use(express.json({ limit: '50mb' }))
 
 const httpServer = createServer(app)
-const io = new Server(httpServer, { cors: { origin: '*' } })
+const io = new Server(httpServer, { 
+    cors: { 
+        origin: '*',
+        methods: ["GET", "POST"]
+    } 
+})
 
 const TYPEBOT_URL = process.env.TYPEBOT_URL
 let sockGlobal
