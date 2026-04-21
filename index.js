@@ -178,13 +178,34 @@ io.on('connection', (socket) => {
     console.log('Interface web conectada no WebSocket')
     
     socket.on('enviar_resposta', async (data) => {
-        if(sockGlobal && data.jid && data.text) {
-            try {
+        if (!sockGlobal || !data.jid) return
+        try {
+            if (data.mediaBase64) {
+                // extrai o buffer do base64 (data:image/jpeg;base64,XXXX)
+                const matches = data.mediaBase64.match(/^data:([^;]+);base64,(.+)$/)
+                if (!matches) return
+                const mime   = matches[1]
+                const buffer = Buffer.from(matches[2], 'base64')
+                const caption = data.caption || ''
+
+                if (data.mediaType === 'video') {
+                    await sockGlobal.sendMessage(data.jid, { video: buffer, caption, mimetype: mime })
+                } else {
+                    await sockGlobal.sendMessage(data.jid, { image: buffer, caption, mimetype: mime })
+                }
+                io.emit('nova_mensagem', {
+                    remoteJid:   data.jid,
+                    fromMe:      true,
+                    mediaType:   data.mediaType,
+                    mediaBase64: data.mediaBase64,
+                    caption
+                })
+            } else if (data.text) {
                 await sockGlobal.sendMessage(data.jid, { text: data.text })
                 io.emit('nova_mensagem', { remoteJid: data.jid, text: data.text, fromMe: true })
-            } catch (err) {
-                console.error('Erro ao responder via painel:', err)
             }
+        } catch (err) {
+            console.error('Erro ao responder via painel:', err)
         }
     })
 })
