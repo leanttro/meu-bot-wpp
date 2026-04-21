@@ -1,4 +1,4 @@
-import { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys'
+import { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } from '@whiskeysockets/baileys'
 import { Boom } from '@hapi/boom'
 import axios from 'axios'
 import qrcode from 'qrcode-terminal'
@@ -85,7 +85,7 @@ async function connectToWhatsApp() {
             io.emit('nova_mensagem', { remoteJid, pushName, text, fromMe })
         } else if (imageMsg) {
             try {
-                const buffer = await sock.downloadMediaMessage(msg)
+                const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage })
                 const base64 = buffer.toString('base64')
                 const mime   = imageMsg.mimetype || 'image/jpeg'
                 io.emit('nova_mensagem', {
@@ -95,11 +95,12 @@ async function connectToWhatsApp() {
                     caption: imageMsg.caption || ''
                 })
             } catch(e) {
+                console.error('Erro ao baixar imagem:', e.message)
                 io.emit('nova_mensagem', { remoteJid, pushName, fromMe, text: '📷 Imagem (erro ao baixar)' })
             }
         } else if (videoMsg) {
             try {
-                const buffer = await sock.downloadMediaMessage(msg)
+                const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage })
                 const base64 = buffer.toString('base64')
                 const mime   = videoMsg.mimetype || 'video/mp4'
                 io.emit('nova_mensagem', {
@@ -109,11 +110,12 @@ async function connectToWhatsApp() {
                     caption: videoMsg.caption || ''
                 })
             } catch(e) {
+                console.error('Erro ao baixar vídeo:', e.message)
                 io.emit('nova_mensagem', { remoteJid, pushName, fromMe, text: '🎥 Vídeo (erro ao baixar)' })
             }
         } else if (audioMsg) {
             try {
-                const buffer = await sock.downloadMediaMessage(msg)
+                const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage })
                 const base64 = buffer.toString('base64')
                 const mime   = audioMsg.mimetype || 'audio/ogg; codecs=opus'
                 io.emit('nova_mensagem', {
@@ -122,6 +124,7 @@ async function connectToWhatsApp() {
                     mediaBase64: `data:${mime};base64,${base64}`
                 })
             } catch(e) {
+                console.error('Erro ao baixar áudio:', e.message)
                 io.emit('nova_mensagem', { remoteJid, pushName, fromMe, text: '🎵 Áudio (erro ao baixar)' })
             }
         } else if (stickerMsg) {
