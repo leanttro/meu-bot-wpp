@@ -67,16 +67,68 @@ async function connectToWhatsApp() {
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return
         const msg = messages[0]
-        
+
         const remoteJid = msg.key.remoteJid
-        const pushName = msg.pushName || '' 
-        const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text
+        const pushName  = msg.pushName || ''
+        const fromMe    = msg.key.fromMe || false
+
+        const text      = msg.message?.conversation
+                       || msg.message?.extendedTextMessage?.text
+                       || null
+
+        const imageMsg   = msg.message?.imageMessage
+        const videoMsg   = msg.message?.videoMessage
+        const audioMsg   = msg.message?.audioMessage
+        const stickerMsg = msg.message?.stickerMessage
 
         if (text) {
-            io.emit('nova_mensagem', { remoteJid, pushName, text, fromMe: msg.key.fromMe || false })
+            io.emit('nova_mensagem', { remoteJid, pushName, text, fromMe })
+        } else if (imageMsg) {
+            try {
+                const buffer = await sock.downloadMediaMessage(msg)
+                const base64 = buffer.toString('base64')
+                const mime   = imageMsg.mimetype || 'image/jpeg'
+                io.emit('nova_mensagem', {
+                    remoteJid, pushName, fromMe,
+                    mediaType: 'image',
+                    mediaBase64: `data:${mime};base64,${base64}`,
+                    caption: imageMsg.caption || ''
+                })
+            } catch(e) {
+                io.emit('nova_mensagem', { remoteJid, pushName, fromMe, text: '📷 Imagem (erro ao baixar)' })
+            }
+        } else if (videoMsg) {
+            try {
+                const buffer = await sock.downloadMediaMessage(msg)
+                const base64 = buffer.toString('base64')
+                const mime   = videoMsg.mimetype || 'video/mp4'
+                io.emit('nova_mensagem', {
+                    remoteJid, pushName, fromMe,
+                    mediaType: 'video',
+                    mediaBase64: `data:${mime};base64,${base64}`,
+                    caption: videoMsg.caption || ''
+                })
+            } catch(e) {
+                io.emit('nova_mensagem', { remoteJid, pushName, fromMe, text: '🎥 Vídeo (erro ao baixar)' })
+            }
+        } else if (audioMsg) {
+            try {
+                const buffer = await sock.downloadMediaMessage(msg)
+                const base64 = buffer.toString('base64')
+                const mime   = audioMsg.mimetype || 'audio/ogg; codecs=opus'
+                io.emit('nova_mensagem', {
+                    remoteJid, pushName, fromMe,
+                    mediaType: 'audio',
+                    mediaBase64: `data:${mime};base64,${base64}`
+                })
+            } catch(e) {
+                io.emit('nova_mensagem', { remoteJid, pushName, fromMe, text: '🎵 Áudio (erro ao baixar)' })
+            }
+        } else if (stickerMsg) {
+            io.emit('nova_mensagem', { remoteJid, pushName, fromMe, text: '🎨 Sticker' })
         }
 
-        if (msg.key.fromMe) return
+        if (fromMe) return
         if (!text) return
 
         try {
